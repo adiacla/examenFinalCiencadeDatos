@@ -282,9 +282,9 @@ def evaluar_taller_redes_neuronales(contenido_estudiante: str):
         return None, "API de evaluación (Gemini) no configurada. Define la variable de entorno GENAI_API_KEY o configura las credenciales.", None
 
     prompt = f"""
-Eres un profesor experto en ML y despliegue con Streamlit.
+Eres un profesor experto en ML y te envia el estudiante un archivo con un deployment de gradio.
 La nota máxima es: 1.50 puntos.
-Objetivo: evaluar un app.py que implementa una interfaz para análisis de emociones (ver requisitos mínimos).
+Objetivo: evaluar el archivo llamado  app.py que implementa una interfaz para triage de un modelo de Ml preentrenado y con interaccion con Gemini (ver requisitos mínimos).
 Devuelve SOLO un JSON con la siguiente estructura:
 
 {{
@@ -298,8 +298,7 @@ Devuelve SOLO un JSON con la siguiente estructura:
   "resumen": "Texto corto con evidencias y fallos detectados"
 }}
 
-Revisa que el app.py tenga: área de texto, botón 'Predecir emoción', carga del modelo/tokenizer/label-encoder,
-preprocesamiento (tokenize+pad) y uso de model.predict, y que no contenga resultados hardcodeados.
+Revisa que el app.py tenga: 1) Entrada del paciente, 2) Resultado ESI + probabilidad, 3) Resumen del paciente (datos crudos) 4) Recomendación clínica generada por Gemini (acciones inmediatas, pruebas y monitorización).
 A continuación el código del estudiante:
 {contenido_estudiante}
 """
@@ -358,24 +357,29 @@ def evaluar_respuestas_abiertas(respuestas_estudiante):
     if client is None:
         return None, "API de evaluación (Gemini) no configurada. Define la variable de entorno GENAI_API_KEY o configura las credenciales.", None
 
-    # Respuestas esperadas para 15 preguntas (idénticas a las definidas en la UI)
+    # Respuestas esperadas para 20 preguntas
     respuestas_esperadas = {
-        1: "LSTM tiene memoria a largo plazo mediante gates; RNN simple no.",
-        2: "Permite retropropagar errores a través del tiempo para ajustar pesos.",
-        3: "La multiplicación repetida de jacobianos reduce gradientes a casi cero.",
-        4: "ht = tanh(Wx xt + Wh ht−1 + b).",
-        5: "Decide qué parte de la memoria previa se olvida.",
-        6: "Clasificador que distingue datos reales vs generados.",
-        7: "Transformer usa solo atención y es paralelizable.",
-        8: "Evitar que el modelo vea el futuro usando máscaras.",
-        9: "Necesitan aprender relaciones complejas globales.",
-        10: "La evolución fue de métodos basados en frecuencias (BoW, TF-IDF) hacia RNN y LSTM que capturaban dependencias secuenciales, pero con limitaciones. Los Transformers introdujeron self-attention, permitiendo paralelización, comprensión contextual profunda y modelos como BERT y GPT.",
-        11: "Porque la calidad del texto de origen determina la calidad del análisis. Texto mal extraído introduce ruido, errores y pérdida de información. Técnicas como scraping, OCR y Textract son fundamentales para obtener datos limpios.",
-        12: "El preprocesamiento normaliza y limpia el texto mediante tokenización, lematización, eliminación de ruido, manejo de puntuación y estandarización. Esto mejora la representatividad de los datos y el desempeño de los modelos.",
-        13: "TF-IDF se basa en frecuencia y es útil para análisis simples sin semántica profunda. Los embeddings capturan relaciones semánticas y contexto, ideales para clasificación avanzada, similitud y tareas complejas.",
-        14: "Los desafíos incluyen alta dimensionalidad, tokens raros, esparsidad, pérdida de contexto, desbalance de vocabulario y costos computacionales. Los embeddings también pueden requerir grandes recursos de memoria.",
-        15: "Un agente puede consultar APIs internas, planificar tareas y responder automáticamente. Ejemplo: un agente que gestiona consultas de clientes verificando inventarios y fechas de entrega.",
-    }
+        1: "La multicolinealidad ocurre cuando dos o más variables están altamente correlacionadas; se detecta mediante VIF o matriz de correlación y se mitiga eliminando variables, usando PCA o regularización.",
+        2: "L1 induce sparsidad eliminando coeficientes; L2 reduce magnitudes sin anularlos. L1 es útil para selección de características; L2 para estabilizar modelos.",
+        3: "La regresión logística usa log-loss porque modela probabilidades de clasificación; MSE no es adecuada por su superficie no convexa y mal comportamiento en clasificación.",
+        4: "Gini mide impureza como probabilidad de clasificación incorrecta; entropía mide desorden. Gini es más rápido; entropía puede ser más informativa.",
+        5: "RandomForest reduce varianza al combinar múltiples árboles mediante bagging y muestreo aleatorio de variables, disminuyendo sobreajuste.",
+        6: "n_estimators, max_depth, max_features, min_samples_split, bootstrap afectan complejidad, diversidad de árboles y riesgo de overfitting.",
+        7: "XGBoost aplica boosting basado en gradientes usando segunda derivada (Hessian), regularización explícita y técnicas como shrinkage y column subsampling.",
+        8: "learning_rate, max_depth, n_estimators, subsample, colsample_bytree, gamma, lambda ayudan a controlar complejidad y evitar sobreajuste.",
+        9: "Un Pipeline puede incluir un StandardScaler, PCA o SelectKBest, y un modelo como LogisticRegression; asegura preprocesamiento consistente en validación y prueba.",
+        10: "Feature selection elige variables relevantes (ej: SelectKBest). Feature extraction crea variables nuevas (ej: PCA).",
+        11: "GridSearchCV evalúa combinaciones de hiperparámetros con validación cruzada interna para seleccionar el mejor modelo según una métrica.",
+        12: "Cuando el espacio de búsqueda es grande o costoso; RandomizedSearchCV cubre el espacio más eficientemente al muestrear combinaciones aleatorias.",
+        13: "La varianza explicada indica cuánta información conserva cada componente; se seleccionan componentes que acumulen 90–95% o mediante el método del codo.",
+        14: "PCA puede eliminar dimensiones que ayudan al clustering o distorsionar relaciones no lineales, afectando la calidad de los clusters.",
+        15: "PCA es no supervisado y maximiza varianza; LDA es supervisado y maximiza la separación entre clases.",
+        16: "K-Means no decide k; el usuario lo define. Optimiza la suma de distancias intra-cluster para ese valor dado.",
+        17: "Elbow busca un punto donde la reducción de SSE disminuye notablemente; silueta evalúa cohesión y separación, maximizándola para el mejor k.",
+        18: "Asume clusters esféricos y de tamaño similar; falla con formas complejas, densidades distintas o presencia de ruido.",
+        19: "PCA puede mejorar K-Means eliminando ruido; pero también puede borrar información útil. Se comparan métricas como silueta y separación visual.",
+        20: "Debe revisarse cohesión, separación, distribución por cluster, interpretabilidad, tamaños balanceados y consistencia con el dominio."
+}
 
     n_preg = len(respuestas_esperadas)
     per_q = round(3.0 / n_preg, 2)  # cada pregunta vale ~0.20
@@ -392,7 +396,6 @@ def evaluar_respuestas_abiertas(respuestas_estudiante):
         prompt = f"""Eres un profesor experto en Ciencia de Datos y AWS.
 Compara la respuesta esperada (texto) con la respuesta del estudiante y evalúa la calidad, además da una retroalimentación de Plagio. Si la detectección de plagio muestra superior al 70% la nota final debe ser la mitad de la nota obtenida.
 La nota máxima es de 3.0 puntos, es decir debes calcular el valor con respecto a las preguntas con validez, consistentes y completitud de cada pregunta.
-
 
 INSTRUCCIONES:
 - Devuelve SOLO un JSON válido con EXACTAMENTE estos campos: {{
@@ -732,21 +735,26 @@ with tabs[2]:
 with tabs[3]:
     st.header("Cuestionario de Preguntas Abiertas (Responde en 1-3 líneas cada una)")
     preguntas_abiertas = [
-        "Explique brevemente la diferencia conceptual entre una RNN clásica-vainilla y una LSTM.",
-        "En una RNN simple, ¿qué problema resuelve el cálculo de la derivada a lo largo del tiempo (BPTT)?",
-        "¿Por qué las RNN sufren vanishing gradient? Explique en 2-3 líneas.",
-        "Dé la ecuación del estado oculto ht en una RNN simple.",
-        "En LSTM, describa brevemente el propósito de la puerta de olvido (forget gate).",
-        "¿Qué es un discriminador en una GAN?",
-        "¿Qué diferencia hay entre seq2seq con atención y Transformer?",
-        "¿Qué es el entrenamiento causal? (causal masking)",
-        "¿Por qué los Transformers requieren grandes datasets?",
-        "Explica cómo ha evolucionado la arquitectura de NLP desde métodos tradicionales hasta modelos Transformer.",
-        "¿Por qué la obtención de texto es una etapa crítica en el pipeline de NLP?",
-        "Describe el propósito del preprocesamiento de texto en un proyecto de NLP.",
-        "Compara brevemente TF-IDF con Word Embeddings y describe en qué casos es preferible cada enfoque.",
-        "¿Qué desafíos suelen aparecer al vectorizar texto para NLP?",
-        "Describe un escenario donde el uso de agentes (AI agents) en Amazon Bedrock mejore un proceso empresarial."
+        "En una regresión lineal múltiple, ¿cómo interpretarías la multicolinealidad y qué técnicas podrías usar para detectarla y mitigarla?",
+        "Explica cómo funciona la regularización L1 y L2 en modelos supervisados y en qué casos elegirías cada una.",
+        "¿Cuál es la función de costo utilizada en regresión logística y por qué no se utiliza MSE?",
+        "Explica la diferencia entre Gini impurity y entropy en modelos basados en árboles y cómo afectan el rendimiento.",
+        "¿Qué ventajas aporta RandomForest frente a un solo árbol de decisión en términos de sesgo y varianza?",
+        "Menciona los hiperparámetros más importantes de RandomForest en Scikit-Learn y explica su impacto.",
+        "Explica cómo funciona XGBoost y cómo difiere del Gradient Boosting tradicional.",
+        "¿Qué hiperparámetros clave ajustarías en XGBoost para evitar sobreajuste?",
+        "Describe cómo implementar un Pipeline de Scikit-Learn que incluya escalado, selección de características y un modelo final.",
+        "¿Qué diferencia existe entre feature selection y feature extraction? Menciona un ejemplo de cada uno.",
+        "¿Cómo se utiliza GridSearchCV y qué tipo de validación interna realiza?",
+        "¿Cuándo es recomendable utilizar RandomizedSearchCV en lugar de GridSearchCV?",
+        "Explica el concepto de varianza explicada en PCA y cómo seleccionar el número óptimo de componentes.",
+        "¿Qué problemas pueden surgir al aplicar PCA antes de realizar clustering con K-Means?",
+        "¿Cuál es la diferencia entre PCA y LDA como métodos de reducción de dimensionalidad?",
+        "¿Cómo decide K-Means el valor de k al ejecutar el algoritmo?",
+        "Explica el método del codo (Elbow Method) y el índice de silueta para evaluar el número óptimo de clusters.",
+        "¿Qué suposiciones realiza K-Means sobre la forma de los clusters y por qué pueden ser limitantes?",
+        "¿Cómo interpretarías los resultados de un análisis de clustering al comparar PCA + KMeans vs KMeans sobre datos originales?",
+        "¿Qué aspectos revisarías en un cluster report para evaluar si los grupos formados son útiles?"
     ]
 
     respuestas_usuario = {}
