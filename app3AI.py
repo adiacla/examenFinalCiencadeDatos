@@ -511,7 +511,7 @@ Respuesta del estudiante:
 # ----------------------------
 st.set_page_config(page_title="Validador de Badges + Taller", layout="wide")
 init_db()
-st.title("Calificador de Badges de Credly y Evaluador de Talleres")
+st.title("Calificador de Badges de Credly en Inteligencia Artificial")
 
 tabs = st.tabs([
     "📂 Cargar Badges",
@@ -889,3 +889,4 @@ with tabs[4]:
 
 
 st.write("")  # espacio final
+
