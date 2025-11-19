@@ -220,15 +220,37 @@ def extraer_texto_y_urls(file_bytes):
         # Juntamos todo el texto para capturar URLs que puedan romperse en saltos de línea
         whole_text = "\n".join(pages_text)
 
+        # Eliminar caracteres invisibles comunes (soft-hyphen, etc.)
+        whole_text = whole_text.replace("\u00ad", "")  # soft-hyphen
+        whole_text = whole_text.replace("\u200b", "")  # zero-width space
+
         # Buscar coincidencias que empiecen en credly.com/go/ y que puedan tener saltos o espacios
-        # Luego normalizaremos quitando espacios internos y signos terminales comunes.
-        raw_matches = re.findall(r"(https?://(?:www\.)?credly\.com/go/[A-Za-z0-9\-\._~%/\\\n\r\t]+)", whole_text, flags=re.IGNORECASE)
+        raw_matches = re.findall(
+            r"(https?://(?:www\.)?credly\.com/go/[A-Za-z0-9\-\._~%/\\\n\r\t]+)",
+            whole_text,
+            flags=re.IGNORECASE,
+        )
+
         for m in raw_matches:
             # Normalizar: quitar saltos de línea/espacios internos
             url = re.sub(r"\s+", "", m)
+
             # Quitar puntuación terminal que suele venir pegada en textos (.,;:) o paréntesis/quotes
             url = url.rstrip(".,;:)\"]'")
-            urls.append(url)
+
+            # Extraer solo la porción válida del badge: https://www.credly.com/go/<token>
+            # donde <token> suele ser alfanumérico con - _ % ~ . etc. cortamos antes de sufijos como 'Powered'
+            m_token = re.match(r'^(https?://(?:www\.)?credly\.com/go/[A-Za-z0-9\-_~%.]+)', url, flags=re.IGNORECASE)
+            if m_token:
+                clean_url = m_token.group(1)
+            else:
+                # fallback: si no coincide, dejamos la url sin espacios ni puntuación terminal
+                clean_url = url
+
+            # También quitar sufijos comunes pegados por la extracción
+            clean_url = re.sub(r'(Powered|powered|Poweredby|poweredby)$', '', clean_url, flags=re.IGNORECASE)
+
+            urls.append(clean_url)
 
     # Deduplicar preservando el orden
     unique_urls = list(dict.fromkeys(urls))
