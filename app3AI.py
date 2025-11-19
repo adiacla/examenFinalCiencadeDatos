@@ -11,6 +11,8 @@ from io import BytesIO
 import os
 import json
 from datetime import datetime, timezone
+import time
+import random
 
 # Intentar cargar .env si está disponible (opcional, no obligatorio)
 try:
@@ -309,6 +311,34 @@ def _extract_text_from_genai_response(response):
     except Exception:
         return str(response)
 
+# Helper: llamada a GenAI con reintentos exponenciales y jitter
+def call_genai_with_retries(prompt, max_retries=5, initial_delay=1.0):
+    """
+    Retorna (response_obj, None) en caso de éxito, o (None, Exception) en caso de fallo definitivo.
+    Implementa reintentos exponenciales con jitter para errores tipo rate-limit / quota.
+    """
+    if client is None:
+        return None, Exception("API de evaluación (Gemini) no configurada. Define la variable de entorno GEMINI_API_KEY o configura las credenciales.")
+    for attempt in range(1, max_retries + 1):
+        try:
+            response = client.models.generate_content(model=gemini_model, contents=prompt)
+            return response, None
+        except Exception as e:
+            err_str = str(e).lower()
+            # Detectar errores de límite/cuota/429
+            is_rate_limit = ("resource_exhausted" in err_str) or ("rate limit" in err_str) or ("quota" in err_str) or ("429" in err_str) or ("resource exhausted" in err_str)
+            if not is_rate_limit:
+                # error distinto: no reintentamos
+                return None, e
+            # Si es el último intento, retornamos error
+            if attempt == max_retries:
+                return None, e
+            # Backoff exponencial con jitter
+            sleep_seconds = initial_delay * (2 ** (attempt - 1)) + random.uniform(0, 0.5)
+            time.sleep(sleep_seconds)
+    # Si salimos del bucle sin éxito
+    return None, Exception("Máximo reintentos alcanzado en call_genai_with_retries")
+
 # Evaluación taller (igual que antes)
 def evaluar_taller_redes_neuronales(contenido_estudiante: str):
     """
@@ -336,7 +366,7 @@ Devuelve SOLO un JSON con la siguiente estructura:
   "resumen": "Texto corto con evidencias y fallos detectados"
 }}
 
-Revisa que el app.py tenga: 1) Entrada del paciente, 2) Resultado ESI + probabilidad, 3) Resumen del paciente (datos crudos) 4) Recomendación clínica generada por Gemini (acciones inmediatas, pruebas y monitorización).
+Revisa que el app.py tenga: 1) Entrada del paciente, 2) Resultado ESI + probabilidad, 3) Resumen del paciente (datos crudos) 4) Recomendación clínica generada por Gemini (acciones inmediatas, prueba[...]
 A continuación el código del estudiante:
 {contenido_estudiante}
 """
@@ -390,14 +420,21 @@ A continuación el código del estudiante:
 # ----------------------------
 # NUEVA: Evaluación por pregunta (cada respuesta en su propio prompt)
 # ----------------------------
-def evaluar_respuestas_abiertas(respuestas_estudiante):
-    """Evalúa cada respuesta individualmente enviando un prompt por pregunta y luego agrega la nota."""
+def evaluar_respuestas_abiertas(respuestas_estudiante, use_batched=False, max_retries=5, per_request_delay=0.8):
+    """Evalúa cada respuesta individualmente enviando un prompt por pregunta y luego agrega la nota.
+
+    Parámetros:
+    - respuestas_estudiante: dict {pregunta_num: texto}
+    - use_batched: si True, envía una sola petición para todas las preguntas (reduce llamadas)
+    - max_retries: reintentos en call_genai_with_retries
+    - per_request_delay: segundos de espera entre llamadas exitosas para evitar bursts
+    """
     if client is None:
-        return None, "API de evaluación (Gemini) no configurada. Define la variable de entorno GENAI_API_KEY o configura las credenciales.", None
+        return None, "API de evaluación (Gemini) no configurada. Define la variable de entorno GEMINI_API_KEY o configura las credenciales.", None
 
     # Respuestas esperadas para 20 preguntas
     respuestas_esperadas = {
-        1: "La multicolinealidad ocurre cuando dos o más variables están altamente correlacionadas; se detecta mediante VIF o matriz de correlación y se mitiga eliminando variables, usando PCA o regularización.",
+        1: "La multicolinealidad ocurre cuando dos o más variables están altamente correlacionadas; se detecta mediante VIF o matriz de correlación y se mitiga eliminando variables, usando PCA o re[...]",
         2: "L1 induce sparsidad eliminando coeficientes; L2 reduce magnitudes sin anularlos. L1 es útil para selección de características; L2 para estabilizar modelos.",
         3: "La regresión logística usa log-loss porque modela probabilidades de clasificación; MSE no es adecuada por su superficie no convexa y mal comportamiento en clasificación.",
         4: "Gini mide impureza como probabilidad de clasificación incorrecta; entropía mide desorden. Gini es más rápido; entropía puede ser más informativa.",
@@ -417,23 +454,103 @@ def evaluar_respuestas_abiertas(respuestas_estudiante):
         18: "Asume clusters esféricos y de tamaño similar; falla con formas complejas, densidades distintas o presencia de ruido.",
         19: "PCA puede mejorar K-Means eliminando ruido; pero también puede borrar información útil. Se comparan métricas como silueta y separación visual.",
         20: "Debe revisarse cohesión, separación, distribución por cluster, interpretabilidad, tamaños balanceados y consistencia con el dominio."
-}
+    }
 
     n_preg = len(respuestas_esperadas)
-    per_q = round(3.0 / n_preg, 2)  # cada pregunta vale ~0.20
+    per_q = round(3.0 / n_preg, 2)  # cada pregunta vale ~0.15
 
     results = []
     total = 0.0
     detalles_lines = []
 
+    if use_batched:
+        # Construir un solo prompt con todas las preguntas/expectativas y respuestas del estudiante
+        all_parts = []
+        for k in range(1, n_preg + 1):
+            expected = respuestas_esperadas[k]
+            student = respuestas_estudiante.get(k, "").replace("\n", " ").strip()
+            all_parts.append(f"Pregunta {k} - Esperado: {expected}\nRespuesta Estudiante: {student}\n")
+        batch_prompt = f"""
+Eres un profesor experto en Ciencia de Datos y AWS.
+Compara cada respuesta del estudiante con la respuesta esperada y evalúa la calidad. Además da una retroalimentación corta por cada pregunta.
+La nota máxima total del cuestionario es 3.0 puntos; cada una de las {n_preg} preguntas tiene un valor máximo de {per_q} puntos.
+
+INSTRUCCIONES:
+- Devuelve SOLO un JSON válido con EXACTAMENTE este formato:
+{{
+  "results": [
+    {{"question": 1, "score": 0.00, "feedback": "..." }},
+    ... up to question {n_preg}
+  ],
+  "summary": "Texto corto con observaciones globales"
+}}
+- Todos los scores deben ser números entre 0 y {per_q} con 2 decimales.
+- No devuelvas texto adicional fuera del JSON.
+- Sé conciso y objetivo.
+
+A continuación las preguntas y las respuestas:
+{"".join(all_parts)}
+"""
+        resp_obj, err = call_genai_with_retries(batch_prompt, max_retries=max_retries, initial_delay=1.0)
+        if err:
+            # Error crítico (p.ej. RESOURCE_EXHAUSTED después de varios reintentos)
+            msg = f"Error de la API en evaluación agrupada: {err}"
+            # Rellenar todos con 0 para que se guarde registro y mostrar el error
+            for k in range(1, n_preg + 1):
+                results.append({"question": k, "score": 0.0, "feedback": msg})
+                detalles_lines.append(f"Pregunta {k}: 0.00/{per_q}\n{msg}")
+            total = 0.0
+            feedback_text = "\n\n".join(detalles_lines) + f"\n\nNota final: {total:.2f} / 3.00"
+            return total, feedback_text, results
+
+        raw = _extract_text_from_genai_response(resp_obj).strip()
+        match_json = re.search(r"\{(?:.|\s)*\}", raw, flags=re.DOTALL)
+        if match_json:
+            try:
+                obj = json.loads(match_json.group(0))
+                batch_results = obj.get("results", [])
+                for item in batch_results:
+                    q = int(item.get("question", 0))
+                    score = float(item.get("score", 0.0))
+                    feedback = item.get("feedback", "")
+                    # limitar
+                    if score < 0.0:
+                        score = 0.0
+                    if score > per_q:
+                        score = per_q
+                    score = round(score, 2)
+                    total += score
+                    results.append({"question": q, "score": score, "feedback": feedback})
+                    detalles_lines.append(f"Pregunta {q}: {score:.2f}/{per_q}\n{feedback}")
+            except Exception as e:
+                # Fallback: no pudimos parsear el JSON correctamente
+                msg = f"No se pudo parsear la respuesta agrupada: {e}\nRespuesta raw: {raw}"
+                for k in range(1, n_preg + 1):
+                    results.append({"question": k, "score": 0.0, "feedback": msg})
+                    detalles_lines.append(f"Pregunta {k}: 0.00/{per_q}\n{msg}")
+                total = 0.0
+        else:
+            msg = f"No se recibió JSON en la respuesta agrupada. Raw: {raw}"
+            for k in range(1, n_preg + 1):
+                results.append({"question": k, "score": 0.0, "feedback": msg})
+                detalles_lines.append(f"Pregunta {k}: 0.00/{per_q}\n{msg}")
+            total = 0.0
+
+        total = round(min(total, 3.0), 2)
+        detalles_lines.append(f"\nNota final: {total:.2f} / 3.00")
+        feedback_text = "\n\n".join(detalles_lines)
+        return total, feedback_text, results
+
+    # Modo por-pregunta (secuencial con reintentos/backoff)
+    consecutive_rate_errors = 0
     for k in range(1, n_preg + 1):
         expected = respuestas_esperadas[k]
         student = respuestas_estudiante.get(k, "").replace("\n", " ").strip()
 
         # Prompt específico por pregunta: pide SOLO un JSON con question, score, feedback
         prompt = f"""Eres un profesor experto en Ciencia de Datos y AWS.
-Compara la respuesta esperada (texto) con la respuesta del estudiante y evalúa la calidad, además da una retroalimentación de Plagio. Si la detectección de plagio muestra superior al 70% la nota final debe ser la mitad de la nota obtenida.
-La nota máxima es de 3.0 puntos, es decir debes calcular el valor con respecto a las preguntas con validez, consistentes y completitud de cada pregunta.
+Compara la respuesta esperada (texto) con la respuesta del estudiante y evalúa la calidad, además da una retroalimentación de Plagio.
+La nota máxima total es de 3.0 puntos, cada pregunta vale máximo {per_q} puntos.
 
 INSTRUCCIONES:
 - Devuelve SOLO un JSON válido con EXACTAMENTE estos campos: {{
@@ -449,53 +566,80 @@ Respuesta del estudiante:
 {student}
 """
 
-        try:
-            response = client.models.generate_content(model=gemini_model, contents=prompt)
-            raw = _extract_text_from_genai_response(response).strip()
-            # Extraer JSON si lo devuelve
-            match_json = re.search(r"\{(?:.|\s)*\}", raw, flags=re.DOTALL)
-            score = 0.0
-            feedback = ""
-            if match_json:
-                try:
-                    obj = json.loads(match_json.group(0))
-                    score = float(obj.get("score", 0.0))
-                    feedback = obj.get("feedback", "")
-                except Exception:
-                    # fallback: buscar número y tomar el resto como feedback
-                    mnum = re.search(r"(\d+(\.\d+)?)", raw)
-                    if mnum:
-                        score = float(mnum.group(1))
-                        feedback = raw
-                    else:
-                        score = 0.0
-                        feedback = raw
+        resp_obj, err = call_genai_with_retries(prompt, max_retries=max_retries, initial_delay=1.0)
+        if err:
+            err_str = str(err)
+            # Si es error de cuota/limite, contamos y si hay muchos consecutivos, abortamos
+            if "resource_exhausted" in err_str.lower() or "rate limit" in err_str.lower() or "429" in err_str.lower() or "quota" in err_str.lower():
+                consecutive_rate_errors += 1
             else:
-                # si no hay JSON, intentar extraer un número y el texto como feedback
+                consecutive_rate_errors = 0
+
+            results.append({"question": k, "score": 0.0, "feedback": f"Error evaluación: {err_str}"})
+            detalles_lines.append(f"Pregunta {k}: 0.00/{per_q}\nError evaluación: {err_str}")
+
+            # Si detectamos 3 errores de rate_limit en fila, abortamos para evitar más consumo y devolvemos mensaje claro
+            if consecutive_rate_errors >= 3:
+                msg = f"Se detectaron múltiples errores de límite (RESOURCE_EXHAUSTED). Espera 1 minuto o revisa tu cuota en Google Cloud. Último error: {err_str}"
+                detalles_lines.append("\n" + msg)
+                total = round(min(total, 3.0), 2)
+                detalles_lines.append(f"\nNota final: {total:.2f} / 3.00")
+                feedback_text = "\n\n".join(detalles_lines)
+                return total, feedback_text, results
+
+            # pequeña espera antes de continuar con la siguiente pregunta para aliviar carga
+            time.sleep(per_request_delay)
+            continue
+
+        # Si tenemos respuesta válida, procesarla
+        raw = _extract_text_from_genai_response(resp_obj).strip()
+        match_json = re.search(r"\{(?:.|\s)*\}", raw, flags=re.DOTALL)
+        score = 0.0
+        feedback = ""
+        if match_json:
+            try:
+                obj = json.loads(match_json.group(0))
+                score = float(obj.get("score", 0.0))
+                feedback = obj.get("feedback", "")
+            except Exception:
+                # fallback: buscar número y tomar el resto como feedback
                 mnum = re.search(r"(\d+(\.\d+)?)", raw)
                 if mnum:
-                    score = float(mnum.group(1))
+                    try:
+                        score = float(mnum.group(1))
+                    except Exception:
+                        score = 0.0
                     feedback = raw
                 else:
                     score = 0.0
                     feedback = raw
-
-            # Asegurar límites por pregunta
-            if score < 0.0:
+        else:
+            # si no hay JSON, intentar extraer un número y el texto como feedback
+            mnum = re.search(r"(\d+(\.\d+)?)", raw)
+            if mnum:
+                try:
+                    score = float(mnum.group(1))
+                except Exception:
+                    score = 0.0
+                feedback = raw
+            else:
                 score = 0.0
-            if score > per_q:
-                score = per_q
+                feedback = raw
 
-            # Normalizar a 2 decimales
-            score = round(score, 2)
-            total += score
-            results.append({"question": k, "score": score, "feedback": feedback})
-            detalles_lines.append(f"Pregunta {k}: {score:.2f}/{per_q}\n{feedback}")
+        # Asegurar límites por pregunta
+        if score < 0.0:
+            score = 0.0
+        if score > per_q:
+            score = per_q
 
-        except Exception as e:
-            # En caso de error con la API, anotar 0 y el mensaje de error
-            results.append({"question": k, "score": 0.0, "feedback": f"Error evaluación: {e}"})
-            detalles_lines.append(f"Pregunta {k}: 0.00/{per_q}\nError evaluación: {e}")
+        # Normalizar a 2 decimales
+        score = round(score, 2)
+        total += score
+        results.append({"question": k, "score": score, "feedback": feedback})
+        detalles_lines.append(f"Pregunta {k}: {score:.2f}/{per_q}\n{feedback}")
+
+        # Pequeña espera entre peticiones para evitar bursts (ajustable)
+        time.sleep(per_request_delay)
 
     # Asegurar máximo 3.0 y redondeo final
     total = round(min(total, 3.0), 2)
@@ -795,6 +939,12 @@ with tabs[3]:
         "¿Qué aspectos revisarías en un cluster report para evaluar si los grupos formados son útiles?"
     ]
 
+    # Opciones para controlar tasa y modo de evaluación
+    st.markdown("**Configuración de evaluación**")
+    use_batched = st.checkbox("Usar evaluación agrupada (una sola petición para todas las preguntas, reduce llamadas)", value=False)
+    per_request_delay = st.number_input("Delay entre peticiones exitosas (segundos) — solo en modo por-pregunta", min_value=0.0, max_value=10.0, value=0.8, step=0.1)
+    max_retries = st.number_input("Intentos máximos por petición (reintentos con backoff)", min_value=1, max_value=10, value=5, step=1)
+
     respuestas_usuario = {}
     for i, pregunta in enumerate(preguntas_abiertas, start=1):
         st.markdown(f"**Pregunta {i}:** {pregunta}")
@@ -804,7 +954,12 @@ with tabs[3]:
     if st.button("Evaluar Cuestionario", key="boton_evaluar_cuestionario"):
         if st.session_state.get("input_id") and st.session_state.get("input_nrc"):
             with st.spinner("Evaluando respuestas pregunta por pregunta..."):
-                nota_cuestionario, feedback_text, parsed = evaluar_respuestas_abiertas(respuestas_usuario)
+                nota_cuestionario, feedback_text, parsed = evaluar_respuestas_abiertas(
+                    respuestas_usuario,
+                    use_batched=use_batched,
+                    max_retries=int(max_retries),
+                    per_request_delay=float(per_request_delay)
+                )
 
             if nota_cuestionario is not None:
                 st.success(f"✅ Nota cuestionario: {nota_cuestionario:.2f} / 3.0")
@@ -889,5 +1044,3 @@ with tabs[4]:
 
 
 st.write("")  # espacio final
-
-
