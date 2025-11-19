@@ -385,13 +385,13 @@ def evaluar_respuestas_abiertas(respuestas_estudiante):
         7: "Transformer usa solo atención y es paralelizable.",
         8: "Evitar que el modelo vea el futuro usando máscaras.",
         9: "Necesitan aprender relaciones complejas globales.",
-        10: "La evolución fue de métodos basados en frecuencias (BoW, TF-IDF) hacia RNN y LSTM que capturaban dependencias secuenciales, pero con limitaciones. Los Transformers introdujeron self-att[...]
-        11: "Porque la calidad del texto de origen determina la calidad del análisis. Texto mal extraído introduce ruido, errores y pérdida de información. Técnicas como scraping, OCR y Textract [...]
-        12: "El preprocesamiento normaliza y limpia el texto mediante tokenización, lematización, eliminación de ruido, manejo de puntuación y estandarización. Esto mejora la representatividad de[...]
-        13: "TF-IDF se basa en frecuencia y es útil para análisis simples sin semántica profunda. Los embeddings capturan relaciones semánticas y contexto, ideales para clasificación avanzada, si[...]
-        14: "Los desafíos incluyen alta dimensionalidad, tokens raros, esparsidad, pérdida de contexto, desbalance de vocabulario y costos computacionales. Los embeddings también pueden requerir gr[...]
-        15: "Un agente puede consultar APIs internas, planificar tareas y responder automáticamente. Ejemplo: un agente que gestiona consultas de clientes verificando inventarios y fechas de entrega.[...]
-    }
+        10: "La evolución fue de métodos basados en frecuencias (BoW, TF-IDF) hacia RNN y LSTM que capturaban dependencias secuenciales, pero con limitaciones. Los Transformers introdujeron self-attention, permitiendo paralelización, comprensión contextual profunda y modelos como BERT y GPT.",
+        11: "Porque la calidad del texto de origen determina la calidad del análisis. Texto mal extraído introduce ruido, errores y pérdida de información. Técnicas como scraping, OCR y Textract son fundamentales para obtener datos limpios.",
+        12: "El preprocesamiento normaliza y limpia el texto mediante tokenización, lematización, eliminación de ruido, manejo de puntuación y estandarización. Esto mejora la representatividad de los datos y el desempeño de los modelos.",
+        13: "TF-IDF se basa en frecuencia y es útil para análisis simples sin semántica profunda. Los embeddings capturan relaciones semánticas y contexto, ideales para clasificación avanzada, similitud y tareas complejas.",
+        14: "Los desafíos incluyen alta dimensionalidad, tokens raros, esparsidad, pérdida de contexto, desbalance de vocabulario y costos computacionales. Los embeddings también pueden requerir grandes recursos de memoria.",
+        15: "Un agente puede consultar APIs internas, planificar tareas y responder automáticamente. Ejemplo: un agente que gestiona consultas de clientes verificando inventarios y fechas de entrega.",
+}
 
     n_preg = len(respuestas_esperadas)
     per_q = round(3.0 / n_preg, 2)  # cada pregunta vale ~0.20
