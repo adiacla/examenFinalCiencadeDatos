@@ -508,7 +508,7 @@ Respuesta del estudiante:
 # ----------------------------
 st.set_page_config(page_title="Validador de Badges + Taller", layout="wide")
 init_db()
-st.title("Calificador de Badges de Credly y Evaluador de Talleres")
+st.title("Calificador de Badges de Credly de Ceincia de datos")
 
 tabs = st.tabs([
     "📂 Cargar Badges",
