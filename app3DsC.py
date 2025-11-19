@@ -211,12 +211,28 @@ def extraer_texto_y_urls(file_bytes):
     texto = ""
     urls = []
     with pdfplumber.open(BytesIO(file_bytes)) as pdf:
+        pages_text = []
         for page in pdf.pages:
             page_text = page.extract_text() or ""
+            pages_text.append(page_text)
             texto += page_text + "\n"
-            encontrados = re.findall(r"https://www\.credly\.com/go/\S+", page_text)
-            urls.extend(encontrados)
-    return texto.strip(), list(set(urls))
+
+        # Juntamos todo el texto para capturar URLs que puedan romperse en saltos de línea
+        whole_text = "\n".join(pages_text)
+
+        # Buscar coincidencias que empiecen en credly.com/go/ y que puedan tener saltos o espacios
+        # Luego normalizaremos quitando espacios internos y signos terminales comunes.
+        raw_matches = re.findall(r"(https?://(?:www\.)?credly\.com/go/[A-Za-z0-9\-\._~%/\\\n\r\t]+)", whole_text, flags=re.IGNORECASE)
+        for m in raw_matches:
+            # Normalizar: quitar saltos de línea/espacios internos
+            url = re.sub(r"\s+", "", m)
+            # Quitar puntuación terminal que suele venir pegada en textos (.,;:) o paréntesis/quotes
+            url = url.rstrip(".,;:)\"]'")
+            urls.append(url)
+
+    # Deduplicar preservando el orden
+    unique_urls = list(dict.fromkeys(urls))
+    return texto.strip(), unique_urls
 
 def procesar_texto(texto):
     lineas = [l.strip() for l in texto.splitlines() if l.strip()]
@@ -369,12 +385,12 @@ def evaluar_respuestas_abiertas(respuestas_estudiante):
         7: "Transformer usa solo atención y es paralelizable.",
         8: "Evitar que el modelo vea el futuro usando máscaras.",
         9: "Necesitan aprender relaciones complejas globales.",
-        10: "La evolución fue de métodos basados en frecuencias (BoW, TF-IDF) hacia RNN y LSTM que capturaban dependencias secuenciales, pero con limitaciones. Los Transformers introdujeron self-attention, permitiendo paralelización, comprensión contextual profunda y modelos como BERT y GPT.",
-        11: "Porque la calidad del texto de origen determina la calidad del análisis. Texto mal extraído introduce ruido, errores y pérdida de información. Técnicas como scraping, OCR y Textract son fundamentales para obtener datos limpios.",
-        12: "El preprocesamiento normaliza y limpia el texto mediante tokenización, lematización, eliminación de ruido, manejo de puntuación y estandarización. Esto mejora la representatividad de los datos y el desempeño de los modelos.",
-        13: "TF-IDF se basa en frecuencia y es útil para análisis simples sin semántica profunda. Los embeddings capturan relaciones semánticas y contexto, ideales para clasificación avanzada, similitud y tareas complejas.",
-        14: "Los desafíos incluyen alta dimensionalidad, tokens raros, esparsidad, pérdida de contexto, desbalance de vocabulario y costos computacionales. Los embeddings también pueden requerir grandes recursos de memoria.",
-        15: "Un agente puede consultar APIs internas, planificar tareas y responder automáticamente. Ejemplo: un agente que gestiona consultas de clientes verificando inventarios y fechas de entrega.",
+        10: "La evolución fue de métodos basados en frecuencias (BoW, TF-IDF) hacia RNN y LSTM que capturaban dependencias secuenciales, pero con limitaciones. Los Transformers introdujeron self-att[...]
+        11: "Porque la calidad del texto de origen determina la calidad del análisis. Texto mal extraído introduce ruido, errores y pérdida de información. Técnicas como scraping, OCR y Textract [...]
+        12: "El preprocesamiento normaliza y limpia el texto mediante tokenización, lematización, eliminación de ruido, manejo de puntuación y estandarización. Esto mejora la representatividad de[...]
+        13: "TF-IDF se basa en frecuencia y es útil para análisis simples sin semántica profunda. Los embeddings capturan relaciones semánticas y contexto, ideales para clasificación avanzada, si[...]
+        14: "Los desafíos incluyen alta dimensionalidad, tokens raros, esparsidad, pérdida de contexto, desbalance de vocabulario y costos computacionales. Los embeddings también pueden requerir gr[...]
+        15: "Un agente puede consultar APIs internas, planificar tareas y responder automáticamente. Ejemplo: un agente que gestiona consultas de clientes verificando inventarios y fechas de entrega.[...]
     }
 
     n_preg = len(respuestas_esperadas)
@@ -390,7 +406,7 @@ def evaluar_respuestas_abiertas(respuestas_estudiante):
 
         # Prompt específico por pregunta: pide SOLO un JSON con question, score, feedback
         prompt = f"""Eres un profesor experto en Ciencia de Datos y AWS.
-Compara la respuesta esperada (texto) con la respuesta del estudiante y evalúa la calidad, además da una retroalimentación de Plagio. Si la detectección de plagio muestra superior al 70% la nota final debe ser la mitad de la nota obtenida.
+Compara la respuesta esperada (texto) con la respuesta del estudiante y evalúa la calidad, además da una retroalimentación de Plagio. Si la detectección de plagio muestra superior al 70% la nota f[...]
 La nota máxima es de 3.0 puntos, es decir debes calcular el valor con respecto a las preguntas con validez, consistentes y completitud de cada pregunta.
 
 
