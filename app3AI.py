@@ -593,7 +593,7 @@ with tabs[2]:
     st.header("Evaluar Taller de Redes Neuronales")
     st.markdown(
     """
-    📥 [Abrir un taller de deployment (Examen_ID_NRC.ipynb)](https://colab.research.google.com/drive/163BFNTDSw6w99uOFpxfKCyjiqaIC89FL?usp=sharing)
+    📥 [Abrir un taller de deployment (Examen_ID_NRC.ipynb)](https://colab.research.google.com/drive/1GIIxfjRlyDKYoOX6CEmlS3JCZif2iWnJ?usp=sharing)
     """,  unsafe_allow_html=True)
 
     archivos_taller = st.file_uploader(
@@ -889,4 +889,5 @@ with tabs[4]:
 
 
 st.write("")  # espacio final
+
 
